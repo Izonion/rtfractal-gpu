@@ -5,6 +5,7 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::Window,
 };
+use wgpu::util::DeviceExt;
 
 const SQUARE_VERTEX_ARRAY: [f32; 18] = [
     -1.0, -1.0,  0.0,
@@ -59,13 +60,29 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
     let swapchain_format = surface.get_preferred_format(&adapter).unwrap();
 
+    let square_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(&SQUARE_VERTEX_ARRAY),
+        usage: wgpu::BufferUsages::VERTEX,
+    });
+
     let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: None,
         layout: Some(&pipeline_layout),
         vertex: wgpu::VertexState {
             module: &shader,
             entry_point: "vs_main",
-            buffers: &[],
+            buffers: &[wgpu::VertexBufferLayout {
+                array_stride: 4 * 3 as wgpu::BufferAddress,
+                step_mode: wgpu::VertexStepMode::Vertex,
+                attributes: &[
+                    wgpu::VertexAttribute {
+                        format: wgpu::VertexFormat::Float32x3,
+                        offset: 0,
+                        shader_location: 0,
+                    },
+                ],
+            }],
         },
         fragment: Some(wgpu::FragmentState {
             module: &shader,
@@ -128,7 +145,8 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                         depth_stencil_attachment: None,
                     });
                     rpass.set_pipeline(&render_pipeline);
-                    rpass.draw(0..3, 0..1);
+                    rpass.set_vertex_buffer(0, square_vertex_buffer.slice(..));
+                    rpass.draw(0..6, 0..1);
                 }
 
                 queue.submit(Some(encoder.finish()));
