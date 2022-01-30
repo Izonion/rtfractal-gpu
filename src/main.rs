@@ -7,14 +7,14 @@ use winit::{
 };
 use wgpu::util::DeviceExt;
 
-const SQUARE_VERTEX_ARRAY: [f32; 18] = [
-    -1.0, -1.0,  0.0,
-     1.0, -1.0,  0.0,
-     1.0,  1.0,  0.0,
+const SQUARE_VERTEX_ARRAY: [f32; 12] = [
+    -0.5, -0.5,
+     0.5, -0.5,
+     0.5,  0.5,
 
-    -1.0, -1.0,  0.0,
-     1.0,  1.0,  0.0,
-    -1.0,  1.0,  0.0,
+    -0.5, -0.5,
+     0.5,  0.5,
+    -0.5,  0.5,
 ];
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
@@ -52,9 +52,44 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
         source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
     });
 
+    let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        label: None,
+        entries: &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: wgpu::BufferSize::new(0),
+                },
+                count: None,
+            },
+        ]
+    });
+
+    let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: None,
+        contents: bytemuck::cast_slice(&[1.0f32]),
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+    });
+
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: None,
+        layout: &bind_group_layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: uniform_buffer.as_entire_binding(),
+            },
+        ],
+    });
+
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: None,
-        bind_group_layouts: &[],
+        bind_group_layouts: &[
+            &bind_group_layout,
+        ],
         push_constant_ranges: &[],
     });
 
@@ -73,11 +108,11 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
             module: &shader,
             entry_point: "vs_main",
             buffers: &[wgpu::VertexBufferLayout {
-                array_stride: 4 * 3 as wgpu::BufferAddress,
+                array_stride: 4 * 2 as wgpu::BufferAddress,
                 step_mode: wgpu::VertexStepMode::Vertex,
                 attributes: &[
                     wgpu::VertexAttribute {
-                        format: wgpu::VertexFormat::Float32x3,
+                        format: wgpu::VertexFormat::Float32x2,
                         offset: 0,
                         shader_location: 0,
                     },
@@ -120,7 +155,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                 // Reconfigure the surface with the new size
                 config.width = size.width;
                 config.height = size.height;
+                let aspect_ratio = size.height as f32 / size.width as f32;
+                queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[aspect_ratio]));
                 surface.configure(&device, &config);
+                window.request_redraw();
             }
             Event::RedrawRequested(_) => {
                 let frame = surface
@@ -144,6 +182,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
                         }],
                         depth_stencil_attachment: None,
                     });
+                    rpass.set_bind_group(0, &bind_group, &[]);
                     rpass.set_pipeline(&render_pipeline);
                     rpass.set_vertex_buffer(0, square_vertex_buffer.slice(..));
                     rpass.draw(0..6, 0..1);
