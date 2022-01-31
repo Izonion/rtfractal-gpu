@@ -2,6 +2,11 @@ struct InVertex {
     [[location(0)]] position: vec2<f32>;
 };
 
+struct OutVertex {
+    [[builtin(position)]] position: vec4<f32>;
+    [[location(0)]] tex_coord: vec2<f32>;
+};
+
 struct InInstance {
     [[location(1)]] translation: vec2<f32>;
     [[location(2)]] rotation: f32;
@@ -16,7 +21,11 @@ struct Uniforms {
 var<uniform> uniforms: Uniforms;
 
 [[stage(vertex)]]
-fn vs_main(in_vertex: InVertex, in_instance: InInstance) -> [[builtin(position)]] vec4<f32> {
+fn vs_main(in_vertex: InVertex, in_instance: InInstance) -> OutVertex {
+    var out_vertex: OutVertex;
+
+    out_vertex.tex_coord = (in_vertex.position + vec2<f32>(1.0, 1.0)) / 2.0;
+
     var scaled = in_vertex.position * in_instance.scale;
     var rotated = vec2<f32>(
         scaled.x * cos(in_instance.rotation) - scaled.y * sin(in_instance.rotation),
@@ -24,12 +33,17 @@ fn vs_main(in_vertex: InVertex, in_instance: InInstance) -> [[builtin(position)]
     );
     var translated = rotated + in_instance.translation;
     var view_transformed = vec2<f32>(translated.x * uniforms.aspect_ratio, translated.y);
-    var final = view_transformed;
+    out_vertex.position = vec4<f32>(view_transformed, 0.0, 1.0);
 
-    return vec4<f32>(final, 0.0, 1.0);
+    return out_vertex;
 }
 
+[[group(0), binding(1)]]
+var t_diffuse: texture_2d<f32>;
+[[group(0), binding(2)]]
+var s_diffuse: sampler;
+
 [[stage(fragment)]]
-fn fs_main() -> [[location(0)]] vec4<f32> {
-    return vec4<f32>(1.0, 0.0, 0.0, 1.0);
+fn fs_main(out_vertex: OutVertex) -> [[location(0)]] vec4<f32> {
+    return textureSample(t_diffuse, s_diffuse, out_vertex.tex_coord);
 }

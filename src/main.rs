@@ -67,6 +67,60 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 		source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(include_str!("shader.wgsl"))),
 	});
 
+	let mut texture_data = [[[0u8; 4]; 32]; 32];
+	for y in 0..32 {
+		for x in 0..32 {
+			let z = (x as u8 + y as u8) * 4;
+			texture_data[y][x] = [z, z, z, 255];
+		}
+	}
+
+	let texture_size = wgpu::Extent3d {
+		width: 32,
+		height: 32,
+		depth_or_array_layers: 1,
+	};
+	let diffuse_texture = device.create_texture(
+		&wgpu::TextureDescriptor {
+			label: None,
+			size: texture_size,
+			mip_level_count: 1,
+			sample_count: 1,
+			dimension: wgpu::TextureDimension::D2,
+			format: wgpu::TextureFormat::Rgba8UnormSrgb,
+			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+		}
+	);
+
+	queue.write_texture(
+		wgpu::ImageCopyTexture {
+			texture: &diffuse_texture,
+			mip_level: 0,
+			origin: wgpu::Origin3d::ZERO,
+			aspect: wgpu::TextureAspect::All,
+		},
+		// The actual pixel data
+		bytemuck::cast_slice(&texture_data),
+		// The layout of the texture
+		wgpu::ImageDataLayout {
+			offset: 0,
+			bytes_per_row: std::num::NonZeroU32::new(4 * texture_size.width),
+			rows_per_image: std::num::NonZeroU32::new(texture_size.height),
+		},
+		texture_size,
+	);
+
+	let diffuse_texture_view = diffuse_texture.create_view(&wgpu::TextureViewDescriptor::default());
+	let diffuse_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+		address_mode_u: wgpu::AddressMode::ClampToEdge,
+		address_mode_v: wgpu::AddressMode::ClampToEdge,
+		address_mode_w: wgpu::AddressMode::ClampToEdge,
+		mag_filter: wgpu::FilterMode::Linear,
+		min_filter: wgpu::FilterMode::Nearest,
+		mipmap_filter: wgpu::FilterMode::Nearest,
+		..Default::default()
+	});
+
 	let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
 		label: None,
 		entries: &[
@@ -78,6 +132,24 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 					has_dynamic_offset: false,
 					min_binding_size: wgpu::BufferSize::new(0),
 				},
+				count: None,
+			},
+			wgpu::BindGroupLayoutEntry {
+				binding: 1,
+				visibility: wgpu::ShaderStages::FRAGMENT,
+				ty: wgpu::BindingType::Texture {
+					multisampled: false,
+					view_dimension: wgpu::TextureViewDimension::D2,
+					sample_type: wgpu::TextureSampleType::Float { filterable: true },
+				},
+				count: None,
+			},
+			wgpu::BindGroupLayoutEntry {
+				binding: 2,
+				visibility: wgpu::ShaderStages::FRAGMENT,
+				ty: wgpu::BindingType::Sampler(
+					wgpu::SamplerBindingType::Filtering,
+				),
 				count: None,
 			},
 		]
@@ -97,6 +169,14 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 				binding: 0,
 				resource: uniform_buffer.as_entire_binding(),
 			},
+			wgpu::BindGroupEntry {
+				binding: 1,
+				resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+			},
+			wgpu::BindGroupEntry {
+				binding: 2,
+				resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+			}
 		],
 	});
 
@@ -117,10 +197,10 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 	});
 
 	let square_transform = SquareTransform {
-		position_x: 1.0,
-		position_y: 1.0,
-		rotation: 0.1,
-		scale_x: 0.5,
+		position_x: 0.0,
+		position_y: 0.0,
+		rotation: 0.0,
+		scale_x: 1.0,
 		scale_y: 1.0,
 	};
 
