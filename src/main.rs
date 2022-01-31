@@ -6,16 +6,31 @@ use winit::{
 	window::Window,
 };
 use wgpu::util::DeviceExt;
+use bytemuck::{Pod, Zeroable};
 
 const SQUARE_VERTEX_ARRAY: [f32; 12] = [
-	-0.5, -0.5,
-	 0.5, -0.5,
-	 0.5,  0.5,
+	-1.0, -1.0,
+	 1.0, -1.0,
+	 1.0,  1.0,
 
-	-0.5, -0.5,
-	 0.5,  0.5,
-	-0.5,  0.5,
+	-1.0, -1.0,
+	 1.0,  1.0,
+	-1.0,  1.0,
 ];
+
+#[repr(C)]
+#[derive(Copy, Clone, Pod, Zeroable)]
+struct SquareTransform {
+	position_x: f32,
+	position_y: f32,
+	rotation: f32,
+	scale_x: f32,
+	scale_y: f32,
+	// tex_coord_1_x: f32,
+	// tex_coord_1_y: f32,
+	// tex_coord_2_x: f32,
+	// tex_coord_2_y: f32,
+}
 
 async fn run(event_loop: EventLoop<()>, window: Window) {
 	let size = window.inner_size();
@@ -70,7 +85,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
 	let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
 		label: None,
-		contents: bytemuck::cast_slice(&[1.0f32]),
+		contents: bytemuck::cast_slice(&[size.height as f32 / size.width as f32]),
 		usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 	});
 
@@ -101,23 +116,61 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 		usage: wgpu::BufferUsages::VERTEX,
 	});
 
+	let square_transform = SquareTransform {
+		position_x: 1.0,
+		position_y: 1.0,
+		rotation: 0.1,
+		scale_x: 0.5,
+		scale_y: 1.0,
+	};
+
+	// PX, PY, RXY, SX, SY
+	let square_instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+		label: None,
+		contents: bytemuck::cast_slice(&[square_transform]),
+		usage: wgpu::BufferUsages::VERTEX,
+	});
+
 	let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 		label: None,
 		layout: Some(&pipeline_layout),
 		vertex: wgpu::VertexState {
 			module: &shader,
 			entry_point: "vs_main",
-			buffers: &[wgpu::VertexBufferLayout {
-				array_stride: 4 * 2 as wgpu::BufferAddress,
-				step_mode: wgpu::VertexStepMode::Vertex,
-				attributes: &[
-					wgpu::VertexAttribute {
-						format: wgpu::VertexFormat::Float32x2,
-						offset: 0,
-						shader_location: 0,
-					},
-				],
-			}],
+			buffers: &[
+				wgpu::VertexBufferLayout {
+					array_stride: 4 * 2 as wgpu::BufferAddress,
+					step_mode: wgpu::VertexStepMode::Vertex,
+					attributes: &[
+						wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Float32x2,
+							offset: 0,
+							shader_location: 0,
+						},
+					],
+				},
+				wgpu::VertexBufferLayout {
+					array_stride: 4 * 5 as wgpu::BufferAddress,
+					step_mode: wgpu::VertexStepMode::Instance,
+					attributes: &[
+						wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Float32x2,
+							offset: 0,
+							shader_location: 1,
+						},
+						wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Float32,
+							offset: 4 * 2,
+							shader_location: 2,
+						},
+						wgpu::VertexAttribute {
+							format: wgpu::VertexFormat::Float32x2,
+							offset: 4 * 2 + 4 * 1,
+							shader_location: 3,
+						},
+					],
+				},
+			],
 		},
 		fragment: Some(wgpu::FragmentState {
 			module: &shader,
@@ -185,6 +238,7 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 					rpass.set_bind_group(0, &bind_group, &[]);
 					rpass.set_pipeline(&render_pipeline);
 					rpass.set_vertex_buffer(0, square_vertex_buffer.slice(..));
+					rpass.set_vertex_buffer(1, square_instance_buffer.slice(..));
 					rpass.draw(0..6, 0..1);
 				}
 
