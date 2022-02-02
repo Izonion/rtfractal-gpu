@@ -8,6 +8,7 @@ use winit::{
 use wgpu::util::DeviceExt;
 use bytemuck::{Pod, Zeroable};
 use std::rc::{Rc, Weak};
+use std::cell::RefCell;
 use std::time::{Instant, Duration};
 use game_loop::game_loop;
 
@@ -22,8 +23,8 @@ const SQUARE_VERTEX_ARRAY: [f32; 12] = [
 ];
 
 #[repr(C)]
-#[derive(Copy, Clone, Pod, Zeroable)]
-struct SquareTransform {
+#[derive(Copy, Clone, Pod, Zeroable, Debug)]
+pub struct SquareTransform {
 	position_x: f32,
 	position_y: f32,
 	rotation: f32,
@@ -35,12 +36,24 @@ struct SquareTransform {
 	// tex_coord_2_y: f32,
 }
 
-trait Meshable {
-	fn get_mesh(&self) -> SquareTransform;
+impl SquareTransform {
+	pub fn new(position_x: f32, position_y: f32, rotation: f32, scale_x: f32, scale_y: f32,) -> Self {
+		Self {
+			position_x,
+			position_y,
+			rotation,
+			scale_x,
+			scale_y,
+		}
+	}
+
+	pub fn new_rc() -> Rc<RefCell<Self>> {
+		Rc::new(RefCell::new(SquareTransform {position_x: 0.0,position_y: 0.1,rotation: 0.0,scale_x: 0.0,scale_y: 0.0,}))
+	}
 }
 
 pub struct Renderer {
-	meshes: Vec<Weak<Box<dyn Meshable>>>,
+	meshes: Vec<Weak<RefCell<SquareTransform>>>,
 }
 
 impl Renderer {
@@ -50,23 +63,32 @@ impl Renderer {
 		}
 	}
 
-	pub fn add_mesh(&mut self, mesh: &Rc<Box<dyn Meshable>>) {
-		self.meshes.push(Rc::downgrade(mesh));
+	pub fn add_mesh(&mut self, mesh: Rc<RefCell<SquareTransform>>) {
+		self.meshes.push(Rc::downgrade(&mesh));
 	}
 
-	fn build_buffer_data(&mut self) -> Box<[u8]> {
-		let meshes = self.meshes.iter_mut().filter_map(|mesh| {
+	fn build_buffer_data(&mut self) -> (Box<[u8]>, usize) {
+		let meshes = self.meshes.iter().filter_map(|mesh| {
 			if let Some(mesh_rc) = mesh.upgrade() {
-				match Rc::try_unwrap(mesh_rc) {
-					Ok(mesh) => Some(mesh.get_mesh()),
-					Err(_) => None,
-				}
+				Some(mesh_rc.borrow().clone())
 			} else { None }
-		}).collect::<Vec<SquareTransform>>().into_iter().fold(Vec::<u8>::new(), |mut accum, mesh| {
+		});
+		let mesh_count = self.meshes.len();
+		let meshes = meshes.fold(Vec::<u8>::new(), |mut accum, mesh| {
 			accum.extend_from_slice(bytemuck::cast_slice(&[mesh]));
 			accum
 		});
-		meshes.into_boxed_slice()
+		(meshes.into_boxed_slice(), mesh_count)
+	}
+
+	fn clear_old_rcs(&mut self) {
+		let mut dead_objects: Vec<usize> = Vec::new();
+		for (i, mesh) in self.meshes.iter().enumerate() {
+			if mesh.upgrade().is_none() { dead_objects.push(i) }
+		}
+		for i in dead_objects.iter().rev() {
+			self.meshes.remove(*i);
+		}
 	}
 }
 
@@ -239,20 +261,20 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		usage: wgpu::BufferUsages::VERTEX,
 	});
 
-	let square_transform = SquareTransform {
-		position_x: 0.0,
-		position_y: 0.0,
-		rotation: 0.0,
-		scale_x: 1.0,
-		scale_y: 1.0,
-	};
+	// let square_transform = SquareTransform {
+	// 	position_x: 0.0,
+	// 	position_y: 0.0,
+	// 	rotation: 0.0,
+	// 	scale_x: 0.01,
+	// 	scale_y: 0.01,
+	// };
 
 	// PX, PY, RXY, SX, SY
-	let square_instance_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-		label: None,
-		contents: bytemuck::cast_slice(&[square_transform]),
-		usage: wgpu::BufferUsages::VERTEX,
-	});
+	// let square_instance_buffer = device.create_buffer(&wgpu::util::BufferDescriptor {
+	// 	label: None,
+	// 	contents: bytemuck::cast_slice(&[square_transform]),
+	// 	usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+	// });
 
 	let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 		label: None,
@@ -316,14 +338,20 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 
 	surface.configure(&device, &config);
 
-	let mut renderer = Renderer::new();
+	let renderer = Renderer::new();
 
-	let mut application = A::new();
+	let application = A::new();
 
-	game_loop(event_loop, window, (application, renderer, queue, surface, device), 60, 1.0/10.0, |g| {
+	game_loop(event_loop, window, (application, renderer, queue, surface, device), 60, 0.1, |g| {
 		g.game.0.update(&mut g.game.1);
 	}, move |g| {
-		let instance_mesh_data = g.game.1.build_buffer_data();
+		g.game.1.clear_old_rcs();
+		let (instance_mesh_data, mesh_count) = g.game.1.build_buffer_data();
+		let square_instance_buffer = g.game.4.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: None,
+			contents: &instance_mesh_data,
+			usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+		});
 		g.game.2.write_buffer(&square_instance_buffer, 0, &instance_mesh_data);
 
 		let frame = g.game.3
@@ -351,7 +379,7 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 			rpass.set_pipeline(&render_pipeline);
 			rpass.set_vertex_buffer(0, square_vertex_buffer.slice(..));
 			rpass.set_vertex_buffer(1, square_instance_buffer.slice(..));
-			rpass.draw(0..6, 0..1);
+			rpass.draw(0..6, 0..mesh_count as u32);
 		}
 
 		g.game.2.submit(Some(encoder.finish()));

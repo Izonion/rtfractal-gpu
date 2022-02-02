@@ -11,3 +11,4 @@ winit="0.26.1"
 pollster="0.2.5"
 bytemuck={ version="1.7.3", features = ["derive"] }
 game-loop={ version="0.8.2", features = ["window"] }
+rand="0.8.4"
