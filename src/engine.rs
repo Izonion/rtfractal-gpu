@@ -7,6 +7,9 @@ use winit::{
 };
 use wgpu::util::DeviceExt;
 use bytemuck::{Pod, Zeroable};
+use std::rc::{Rc, Weak};
+use std::time::{Instant, Duration};
+use game_loop::game_loop;
 
 const SQUARE_VERTEX_ARRAY: [f32; 12] = [
 	-1.0, -1.0,
@@ -32,9 +35,47 @@ struct SquareTransform {
 	// tex_coord_2_y: f32,
 }
 
+trait Meshable {
+	fn get_mesh(&self) -> SquareTransform;
+}
 
+pub struct Renderer {
+	meshes: Vec<Weak<Box<dyn Meshable>>>,
+}
 
-async fn run(event_loop: EventLoop<()>, window: Window) {
+impl Renderer {
+	fn new() -> Self {
+		Renderer {
+			meshes: Vec::new(),
+		}
+	}
+
+	pub fn add_mesh(&mut self, mesh: &Rc<Box<dyn Meshable>>) {
+		self.meshes.push(Rc::downgrade(mesh));
+	}
+
+	fn build_buffer_data(&mut self) -> Box<[u8]> {
+		let meshes = self.meshes.iter_mut().filter_map(|mesh| {
+			if let Some(mesh_rc) = mesh.upgrade() {
+				match Rc::try_unwrap(mesh_rc) {
+					Ok(mesh) => Some(mesh.get_mesh()),
+					Err(_) => None,
+				}
+			} else { None }
+		}).collect::<Vec<SquareTransform>>().into_iter().fold(Vec::<u8>::new(), |mut accum, mesh| {
+			accum.extend_from_slice(bytemuck::cast_slice(&[mesh]));
+			accum
+		});
+		meshes.into_boxed_slice()
+	}
+}
+
+pub trait Application {
+	fn new() -> Self;
+	fn update(&mut self, renderer: &mut Renderer);
+}
+
+async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window) {
 	let size = window.inner_size();
 	let instance = wgpu::Instance::new(wgpu::Backends::all());
 	let surface = unsafe { instance.create_surface(&window) };
@@ -275,13 +316,47 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 
 	surface.configure(&device, &config);
 
-	event_loop.run(move |event, _, control_flow| {
-		// Have the closure take ownership of the resources.
-		// `event_loop.run` never returns, therefore we must do this to ensure
-		// the resources are properly cleaned up.
-		let _ = (&instance, &adapter, &shader, &pipeline_layout);
+	let mut renderer = Renderer::new();
 
-		*control_flow = ControlFlow::Wait;
+	let mut application = A::new();
+
+	game_loop(event_loop, window, (application, renderer, queue, surface, device), 60, 1.0/10.0, |g| {
+		g.game.0.update(&mut g.game.1);
+	}, move |g| {
+		let instance_mesh_data = g.game.1.build_buffer_data();
+		g.game.2.write_buffer(&square_instance_buffer, 0, &instance_mesh_data);
+
+		let frame = g.game.3
+			.get_current_texture()
+			.expect("Failed to acquire next swap chain texture");
+		let view = frame
+			.texture
+			.create_view(&wgpu::TextureViewDescriptor::default());
+		let mut encoder =
+			g.game.4.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+		{
+			let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+				label: None,
+				color_attachments: &[wgpu::RenderPassColorAttachment {
+					view: &view,
+					resolve_target: None,
+					ops: wgpu::Operations {
+						load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+						store: true,
+					},
+				}],
+				depth_stencil_attachment: None,
+			});
+			rpass.set_bind_group(0, &bind_group, &[]);
+			rpass.set_pipeline(&render_pipeline);
+			rpass.set_vertex_buffer(0, square_vertex_buffer.slice(..));
+			rpass.set_vertex_buffer(1, square_instance_buffer.slice(..));
+			rpass.draw(0..6, 0..1);
+		}
+
+		g.game.2.submit(Some(encoder.finish()));
+		frame.present();
+	}, move |g, event| {
 		match event {
 			Event::WindowEvent {
 				event: WindowEvent::Resized(size),
@@ -291,59 +366,94 @@ async fn run(event_loop: EventLoop<()>, window: Window) {
 				config.width = size.width;
 				config.height = size.height;
 				let aspect_ratio = size.height as f32 / size.width as f32;
-				queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[aspect_ratio]));
-				surface.configure(&device, &config);
-				window.request_redraw();
-			}
-			Event::RedrawRequested(_) => {
-				let frame = surface
-					.get_current_texture()
-					.expect("Failed to acquire next swap chain texture");
-				let view = frame
-					.texture
-					.create_view(&wgpu::TextureViewDescriptor::default());
-				let mut encoder =
-					device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
-				{
-					let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-						label: None,
-						color_attachments: &[wgpu::RenderPassColorAttachment {
-							view: &view,
-							resolve_target: None,
-							ops: wgpu::Operations {
-								load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
-								store: true,
-							},
-						}],
-						depth_stencil_attachment: None,
-					});
-					rpass.set_bind_group(0, &bind_group, &[]);
-					rpass.set_pipeline(&render_pipeline);
-					rpass.set_vertex_buffer(0, square_vertex_buffer.slice(..));
-					rpass.set_vertex_buffer(1, square_instance_buffer.slice(..));
-					rpass.draw(0..6, 0..1);
-				}
-
-				queue.submit(Some(encoder.finish()));
-				frame.present();
+				g.game.2.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[aspect_ratio]));
+				g.game.3.configure(&g.game.4, &config);
+				g.window.request_redraw();
 			}
 			Event::WindowEvent {
 				event: WindowEvent::CloseRequested |
 					WindowEvent::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(VirtualKeyCode::Escape), .. }, .. },
 				..
-			} => *control_flow = ControlFlow::Exit,
-			_ => {}
+			} => g.exit(),
+			_ => (),
 		}
 	});
+
+	// event_loop.run(move |event, _, control_flow| {
+	// 	// Have the closure take ownership of the resources.
+	// 	// `event_loop.run` never returns, therefore we must do this to ensure
+	// 	// the resources are properly cleaned up.
+	// 	let _ = (&instance, &adapter, &shader, &pipeline_layout);
+
+	// 	match event {
+	// 		Event::WindowEvent {
+	// 			event: WindowEvent::Resized(size),
+	// 			..
+	// 		} => {
+	// 			// Reconfigure the surface with the new size
+	// 			config.width = size.width;
+	// 			config.height = size.height;
+	// 			let aspect_ratio = size.height as f32 / size.width as f32;
+	// 			queue.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[aspect_ratio]));
+	// 			surface.configure(&device, &config);
+	// 			window.request_redraw();
+	// 		}
+	// 		Event::MainEventsCleared => {
+	// 			application.update(&mut renderer);
+	// 			window.request_redraw();
+	// 		}
+	// 		Event::RedrawRequested(_) => {
+	// 			let instance_mesh_data = renderer.build_buffer_data();
+	// 			queue.write_buffer(&square_instance_buffer, 0, &instance_mesh_data);
+
+	// 			let frame = surface
+	// 				.get_current_texture()
+	// 				.expect("Failed to acquire next swap chain texture");
+	// 			let view = frame
+	// 				.texture
+	// 				.create_view(&wgpu::TextureViewDescriptor::default());
+	// 			let mut encoder =
+	// 				device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None });
+	// 			{
+	// 				let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+	// 					label: None,
+	// 					color_attachments: &[wgpu::RenderPassColorAttachment {
+	// 						view: &view,
+	// 						resolve_target: None,
+	// 						ops: wgpu::Operations {
+	// 							load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+	// 							store: true,
+	// 						},
+	// 					}],
+	// 					depth_stencil_attachment: None,
+	// 				});
+	// 				rpass.set_bind_group(0, &bind_group, &[]);
+	// 				rpass.set_pipeline(&render_pipeline);
+	// 				rpass.set_vertex_buffer(0, square_vertex_buffer.slice(..));
+	// 				rpass.set_vertex_buffer(1, square_instance_buffer.slice(..));
+	// 				rpass.draw(0..6, 0..1);
+	// 			}
+
+	// 			queue.submit(Some(encoder.finish()));
+	// 			frame.present();
+	// 		}
+	// 		Event::WindowEvent {
+	// 			event: WindowEvent::CloseRequested |
+	// 				WindowEvent::KeyboardInput { input: KeyboardInput { virtual_keycode: Some(VirtualKeyCode::Escape), .. }, .. },
+	// 			..
+	// 		} => *control_flow = ControlFlow::Exit,
+	// 		_ => {}
+	// 	}
+	// });
 }
 
-pub fn main() {
+pub fn main<A: 'static +  Application>() {
 	let event_loop = EventLoop::new();
 	let window = winit::window::Window::new(&event_loop).unwrap();
 	#[cfg(not(target_arch = "wasm32"))]
 	{
 		// Temporarily avoid srgb formats for the swapchain on the web
-		pollster::block_on(run(event_loop, window));
+		pollster::block_on(run::<A>(event_loop, window));
 	}
 	#[cfg(target_arch = "wasm32")]
 	{
@@ -359,6 +469,6 @@ pub fn main() {
 					.ok()
 			})
 			.expect("couldn't append canvas to document body");
-		wasm_bindgen_futures::spawn_local(run(event_loop, window));
+		wasm_bindgen_futures::spawn_local(run::<A>(event_loop, window));
 	}
 }
