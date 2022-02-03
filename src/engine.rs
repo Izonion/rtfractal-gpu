@@ -145,7 +145,7 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		height: 32,
 		depth_or_array_layers: 1,
 	};
-	let diffuse_texture = device.create_texture(
+	let mut diffuse_texture = device.create_texture(
 		&wgpu::TextureDescriptor {
 			label: None,
 			size: texture_size,
@@ -305,7 +305,14 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		fragment: Some(wgpu::FragmentState {
 			module: &shader,
 			entry_point: "fs_main",
-			targets: &[swapchain_format.into()],
+			targets: &[
+				swapchain_format.into(),
+				wgpu::ColorTargetState {
+					format: wgpu::TextureFormat::Rgba8UnormSrgb,
+					blend: Some(wgpu::BlendState::REPLACE),
+					write_mask: wgpu::ColorWrites::ALL,
+				},
+			],
 		}),
 		primitive: wgpu::PrimitiveState::default(),
 		depth_stencil: None,
@@ -339,6 +346,24 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		});
 		g.game.2.write_buffer(&square_instance_buffer, 0, &instance_mesh_data);
 
+		let texture_size = wgpu::Extent3d {
+			width: size.width,
+			height: size.height,
+			depth_or_array_layers: 1,
+		};
+		let screen_cpy_texture = g.game.4.create_texture(
+			&wgpu::TextureDescriptor {
+				label: None,
+				size: texture_size,
+				mip_level_count: 1,
+				sample_count: 1,
+				dimension: wgpu::TextureDimension::D2,
+				format: wgpu::TextureFormat::Rgba8UnormSrgb,
+				usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
+			}
+		);
+		let screen_cpy_texture_view = screen_cpy_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
 		let frame = g.game.3
 			.get_current_texture()
 			.expect("Failed to acquire next swap chain texture");
@@ -350,14 +375,24 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		{
 			let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
 				label: None,
-				color_attachments: &[wgpu::RenderPassColorAttachment {
-					view: &view,
-					resolve_target: None,
-					ops: wgpu::Operations {
-						load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
-						store: true,
+				color_attachments: &[
+					wgpu::RenderPassColorAttachment {
+						view: &view,
+						resolve_target: None,
+						ops: wgpu::Operations {
+							load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+							store: true,
+						},
 					},
-				}],
+					wgpu::RenderPassColorAttachment {
+						view: &screen_cpy_texture_view,
+						resolve_target: None,
+						ops: wgpu::Operations {
+							load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+							store: true,
+						},
+					},
+				],
 				depth_stencil_attachment: None,
 			});
 			rpass.set_bind_group(0, &bind_group, &[]);

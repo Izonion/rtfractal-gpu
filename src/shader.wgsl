@@ -43,7 +43,15 @@ var t_diffuse: texture_2d<f32>;
 [[group(0), binding(2)]]
 var s_diffuse: sampler;
 
+struct OutFrag {
+    [[location(0)]] normal: vec4<f32>;
+    [[location(1)]] other: vec4<f32>;
+};
+
 [[stage(fragment)]]
-fn fs_main(out_vertex: OutVertex) -> [[location(0)]] vec4<f32> {
-    return textureSample(t_diffuse, s_diffuse, out_vertex.tex_coord);
+fn fs_main(out_vertex: OutVertex) -> OutFrag {
+    var out_frag: OutFrag;
+    out_frag.normal = textureSample(t_diffuse, s_diffuse, out_vertex.tex_coord);
+    out_frag.other = textureSample(t_diffuse, s_diffuse, out_vertex.tex_coord);
+    return out_frag;
 }
