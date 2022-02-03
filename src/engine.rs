@@ -261,21 +261,6 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		usage: wgpu::BufferUsages::VERTEX,
 	});
 
-	// let square_transform = SquareTransform {
-	// 	position_x: 0.0,
-	// 	position_y: 0.0,
-	// 	rotation: 0.0,
-	// 	scale_x: 0.01,
-	// 	scale_y: 0.01,
-	// };
-
-	// PX, PY, RXY, SX, SY
-	// let square_instance_buffer = device.create_buffer(&wgpu::util::BufferDescriptor {
-	// 	label: None,
-	// 	contents: bytemuck::cast_slice(&[square_transform]),
-	// 	usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-	// });
-
 	let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 		label: None,
 		layout: Some(&pipeline_layout),

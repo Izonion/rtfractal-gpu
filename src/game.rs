@@ -24,12 +24,6 @@ impl Square {
 	}
 }
 
-// impl engine::Meshable for Square {
-// 	fn get_mesh(&self) -> engine::SquareTransform {
-// 		engine::SquareTransform::new(self.position.0, self.position.1, self.rotation, self.scale, self.scale)
-// 	}
-// }
-
 pub struct MyApp {
 	objects: VecDeque<Square>,
 	add_obj_cooldown: u32,
