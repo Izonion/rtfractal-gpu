@@ -6,7 +6,9 @@ use rand;
 
 struct Square {
 	position: (f32, f32),
+	p_vel: (f32, f32),
 	rotation: f32,
+	r_vel: f32,
 	scale: f32,
 	time_left: u32,
 	mesh_object: Rc<RefCell<engine::SquareTransform>>,
@@ -45,7 +47,9 @@ impl engine::Application for MyApp {
 				let mesh_object = engine::SquareTransform::new_rc();
 				let new_object = Square {
 					position: (rand::random::<f32>() * 2.0 - 1.0, rand::random::<f32>() * 2.0 - 1.0),
+					p_vel: (rand::random::<f32>() * 0.01 - 0.005, rand::random::<f32>() * 0.01 - 0.005),
 					rotation: rand::random::<f32>() * std::f32::consts::PI,
+					r_vel: rand::random::<f32>() * 0.02 - 0.01,
 					scale: rand::random::<f32>() * 0.2 + 0.2,
 					time_left: 57 + (rand::random::<u32>() >> 28),
 					mesh_object: Rc::clone(&mesh_object),
@@ -58,6 +62,9 @@ impl engine::Application for MyApp {
 		let mut dead_objects: Vec<usize> = Vec::new();
 		for (i, square) in self.objects.iter_mut().enumerate() {
 			square.time_left -= 1;
+			square.position.0 += square.p_vel.0;
+			square.position.1 += square.p_vel.1;
+			square.rotation += square.r_vel;
 			square.update_mesh_object();
 			if square.time_left == 0 { dead_objects.push(i) }
 		}
