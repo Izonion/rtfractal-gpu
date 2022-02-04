@@ -10,6 +10,7 @@ struct Square {
 	rotation: f32,
 	r_vel: f32,
 	scale: f32,
+	s_vel: f32,
 	time_left: u32,
 	mesh_object: Rc<RefCell<engine::SquareTransform>>,
 }
@@ -46,18 +47,19 @@ impl engine::Application for MyApp {
 			if self.objects.len() < 16 {
 				let mesh_object = engine::SquareTransform::new_rc();
 				let new_object = Square {
-					position: (rand::random::<f32>() * 2.0 - 1.0, rand::random::<f32>() * 2.0 - 1.0),
-					p_vel: (rand::random::<f32>() * 0.01 - 0.005, rand::random::<f32>() * 0.01 - 0.005),
+					position: (rand::random::<f32>() * 1.0 - 0.5, rand::random::<f32>() * 1.0 - 0.5),
+					p_vel: (rand::random::<f32>() * 0.005 - 0.0025, rand::random::<f32>() * 0.005 - 0.0025),
 					rotation: rand::random::<f32>() * std::f32::consts::PI,
 					r_vel: rand::random::<f32>() * 0.02 - 0.01,
-					scale: rand::random::<f32>() * 0.2 + 0.2,
-					time_left: 97 + (rand::random::<u32>() >> 28),
+					scale: rand::random::<f32>() * 0.4 + 0.6,// * if rand::random::<f32>() > 0.5 { -1.0 } else { 1.0 },
+					s_vel: rand::random::<f32>() * 0.001 - 0.0005,
+					time_left: 700 + (rand::random::<u32>() >> 28),
 					mesh_object: Rc::clone(&mesh_object),
 				};
 				self.objects.push_back(new_object);
 				renderer.add_mesh(mesh_object);
 			}
-			self.add_obj_cooldown = 16;
+			self.add_obj_cooldown = 200;
 		}
 		let mut dead_objects: Vec<usize> = Vec::new();
 		for (i, square) in self.objects.iter_mut().enumerate() {
@@ -65,6 +67,7 @@ impl engine::Application for MyApp {
 			square.position.0 += square.p_vel.0;
 			square.position.1 += square.p_vel.1;
 			square.rotation += square.r_vel;
+			square.scale += square.s_vel;
 			square.update_mesh_object();
 			if square.time_left == 0 { dead_objects.push(i) }
 		}
