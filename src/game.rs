@@ -51,7 +51,7 @@ impl engine::Application for MyApp {
 					rotation: rand::random::<f32>() * std::f32::consts::PI,
 					r_vel: rand::random::<f32>() * 0.02 - 0.01,
 					scale: rand::random::<f32>() * 0.2 + 0.2,
-					time_left: 57 + (rand::random::<u32>() >> 28),
+					time_left: 97 + (rand::random::<u32>() >> 28),
 					mesh_object: Rc::clone(&mesh_object),
 				};
 				self.objects.push_back(new_object);

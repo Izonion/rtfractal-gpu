@@ -52,6 +52,6 @@ struct OutFrag {
 fn fs_main(out_vertex: OutVertex) -> OutFrag {
     var out_frag: OutFrag;
     out_frag.normal = textureSample(t_diffuse, s_diffuse, out_vertex.tex_coord);
-    out_frag.other = textureSample(t_diffuse, s_diffuse, out_vertex.tex_coord);
+    out_frag.other = textureSample(t_diffuse, s_diffuse, out_vertex.tex_coord) * vec4<f32>(0.8, 0.8, 0.8, 1.0);
     return out_frag;
 }

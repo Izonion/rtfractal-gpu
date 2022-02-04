@@ -226,6 +226,24 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
 	});
 
+	let texture_size = wgpu::Extent3d {
+		width: size.width,
+		height: size.height,
+		depth_or_array_layers: 1,
+	};
+	let draw_texture = device.create_texture(
+		&wgpu::TextureDescriptor {
+			label: None,
+			size: texture_size,
+			mip_level_count: 1,
+			sample_count: 1,
+			dimension: wgpu::TextureDimension::D2,
+			format: wgpu::TextureFormat::Rgba8UnormSrgb,
+			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
+		}
+	);
+	let draw_texture_view = draw_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
 	let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
 		label: None,
 		layout: &bind_group_layout,
@@ -236,7 +254,7 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 			},
 			wgpu::BindGroupEntry {
 				binding: 1,
-				resource: wgpu::BindingResource::TextureView(&diffuse_texture_view),
+				resource: wgpu::BindingResource::TextureView(&draw_texture_view),
 			},
 			wgpu::BindGroupEntry {
 				binding: 2,
@@ -260,6 +278,14 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		contents: bytemuck::cast_slice(&SQUARE_VERTEX_ARRAY),
 		usage: wgpu::BufferUsages::VERTEX,
 	});
+
+	let mut config = wgpu::SurfaceConfiguration {
+		usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+		format: swapchain_format,
+		width: size.width,
+		height: size.height,
+		present_mode: wgpu::PresentMode::Mailbox,
+	};
 
 	let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
 		label: None,
@@ -306,7 +332,11 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 			module: &shader,
 			entry_point: "fs_main",
 			targets: &[
-				swapchain_format.into(),
+				wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                },
 				wgpu::ColorTargetState {
 					format: wgpu::TextureFormat::Rgba8UnormSrgb,
 					blend: Some(wgpu::BlendState::REPLACE),
@@ -319,14 +349,6 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		multisample: wgpu::MultisampleState::default(),
 		multiview: None,
 	});
-
-	let mut config = wgpu::SurfaceConfiguration {
-		usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-		format: swapchain_format,
-		width: size.width,
-		height: size.height,
-		present_mode: wgpu::PresentMode::Mailbox,
-	};
 
 	surface.configure(&device, &config);
 
@@ -359,7 +381,7 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 				sample_count: 1,
 				dimension: wgpu::TextureDimension::D2,
 				format: wgpu::TextureFormat::Rgba8UnormSrgb,
-				usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::RENDER_ATTACHMENT,
+				usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
 			}
 		);
 		let screen_cpy_texture_view = screen_cpy_texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -380,7 +402,7 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 						view: &view,
 						resolve_target: None,
 						ops: wgpu::Operations {
-							load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+							load: wgpu::LoadOp::Clear(wgpu::Color::WHITE),
 							store: true,
 						},
 					},
@@ -388,7 +410,7 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 						view: &screen_cpy_texture_view,
 						resolve_target: None,
 						ops: wgpu::Operations {
-							load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+							load: wgpu::LoadOp::Clear(wgpu::Color::RED),
 							store: true,
 						},
 					},
@@ -401,6 +423,12 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 			rpass.set_vertex_buffer(1, square_instance_buffer.slice(..));
 			rpass.draw(0..6, 0..mesh_count as u32);
 		}
+
+		encoder.copy_texture_to_texture(
+			screen_cpy_texture.as_image_copy(),
+			draw_texture.as_image_copy(),
+			texture_size,
+		);
 
 		g.game.2.submit(Some(encoder.finish()));
 		frame.present();
@@ -430,7 +458,10 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 
 pub fn main<A: 'static +  Application>() {
 	let event_loop = EventLoop::new();
-	let window = winit::window::Window::new(&event_loop).unwrap();
+	let window_builder = winit::window::WindowBuilder::new()
+		.with_inner_size(winit::dpi::PhysicalSize::new(1200, 1200))
+		.with_resizable(false);
+	let window = window_builder.build(&event_loop).unwrap();
 	#[cfg(not(target_arch = "wasm32"))]
 	{
 		// Temporarily avoid srgb formats for the swapchain on the web
