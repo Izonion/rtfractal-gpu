@@ -220,49 +220,6 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		]
 	});
 
-	let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-		label: None,
-		contents: bytemuck::cast_slice(&[size.height as f32 / size.width as f32]),
-		usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-	});
-
-	let texture_size = wgpu::Extent3d {
-		width: size.width,
-		height: size.height,
-		depth_or_array_layers: 1,
-	};
-	let draw_texture = device.create_texture(
-		&wgpu::TextureDescriptor {
-			label: None,
-			size: texture_size,
-			mip_level_count: 1,
-			sample_count: 1,
-			dimension: wgpu::TextureDimension::D2,
-			format: wgpu::TextureFormat::Rgba8UnormSrgb,
-			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
-		}
-	);
-	let draw_texture_view = draw_texture.create_view(&wgpu::TextureViewDescriptor::default());
-
-	let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-		label: None,
-		layout: &bind_group_layout,
-		entries: &[
-			wgpu::BindGroupEntry {
-				binding: 0,
-				resource: uniform_buffer.as_entire_binding(),
-			},
-			wgpu::BindGroupEntry {
-				binding: 1,
-				resource: wgpu::BindingResource::TextureView(&draw_texture_view),
-			},
-			wgpu::BindGroupEntry {
-				binding: 2,
-				resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
-			}
-		],
-	});
-
 	let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
 		label: None,
 		bind_group_layouts: &[
@@ -279,7 +236,7 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		usage: wgpu::BufferUsages::VERTEX,
 	});
 
-	let mut config = wgpu::SurfaceConfiguration {
+	let config = wgpu::SurfaceConfiguration {
 		usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
 		format: swapchain_format,
 		width: size.width,
@@ -350,13 +307,25 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		multiview: None,
 	});
 
+	let draw_texture = device.create_texture(
+		&wgpu::TextureDescriptor {
+			label: None,
+			size: texture_size,
+			mip_level_count: 1,
+			sample_count: 1,
+			dimension: wgpu::TextureDimension::D2,
+			format: wgpu::TextureFormat::Rgba8UnormSrgb,
+			usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
+		}
+	);
+
 	surface.configure(&device, &config);
 
 	let renderer = Renderer::new();
 
 	let application = A::new();
 
-	game_loop(event_loop, window, (application, renderer, queue, surface, device), 60, 0.1, |g| {
+	game_loop(event_loop, window, (application, renderer, queue, surface, device, config, draw_texture), 60, 0.1, |g| {
 		g.game.0.update(&mut g.game.1);
 	}, move |g| {
 		g.game.1.clear_old_rcs();
@@ -369,8 +338,8 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 		g.game.2.write_buffer(&square_instance_buffer, 0, &instance_mesh_data);
 
 		let texture_size = wgpu::Extent3d {
-			width: size.width,
-			height: size.height,
+			width: g.game.5.width,
+			height: g.game.5.height,
 			depth_or_array_layers: 1,
 		};
 		let screen_cpy_texture = g.game.4.create_texture(
@@ -385,6 +354,33 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 			}
 		);
 		let screen_cpy_texture_view = screen_cpy_texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+		let draw_texture_view = g.game.6.create_view(&wgpu::TextureViewDescriptor::default());
+
+
+		let uniform_buffer = g.game.4.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+			label: None,
+			contents: bytemuck::cast_slice(&[g.game.5.height as f32 / g.game.5.width as f32]),
+			usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+		});
+		let bind_group = g.game.4.create_bind_group(&wgpu::BindGroupDescriptor {
+			label: None,
+			layout: &bind_group_layout,
+			entries: &[
+				wgpu::BindGroupEntry {
+					binding: 0,
+					resource: uniform_buffer.as_entire_binding(),
+				},
+				wgpu::BindGroupEntry {
+					binding: 1,
+					resource: wgpu::BindingResource::TextureView(&draw_texture_view),
+				},
+				wgpu::BindGroupEntry {
+					binding: 2,
+					resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+				}
+			],
+		});
 
 		let frame = g.game.3
 			.get_current_texture()
@@ -424,9 +420,21 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 			rpass.draw(0..6, 0..mesh_count as u32);
 		}
 
+		g.game.6 = g.game.4.create_texture(
+			&wgpu::TextureDescriptor {
+				label: None,
+				size: texture_size,
+				mip_level_count: 1,
+				sample_count: 1,
+				dimension: wgpu::TextureDimension::D2,
+				format: wgpu::TextureFormat::Rgba8UnormSrgb,
+				usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST,
+			}
+		);
+
 		encoder.copy_texture_to_texture(
 			screen_cpy_texture.as_image_copy(),
-			draw_texture.as_image_copy(),
+			g.game.6.as_image_copy(),
 			texture_size,
 		);
 
@@ -439,11 +447,11 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 				..
 			} => {
 				// Reconfigure the surface with the new size
-				config.width = size.width;
-				config.height = size.height;
+				g.game.5.width = size.width;
+				g.game.5.height = size.height;
 				let aspect_ratio = size.height as f32 / size.width as f32;
-				g.game.2.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[aspect_ratio]));
-				g.game.3.configure(&g.game.4, &config);
+				// g.game.2.write_buffer(&uniform_buffer, 0, bytemuck::cast_slice(&[aspect_ratio]));
+				g.game.3.configure(&g.game.4, &g.game.5);
 				g.window.request_redraw();
 			}
 			Event::WindowEvent {
@@ -459,8 +467,8 @@ async fn run<A: 'static + Application>(event_loop: EventLoop<()>, window: Window
 pub fn main<A: 'static +  Application>() {
 	let event_loop = EventLoop::new();
 	let window_builder = winit::window::WindowBuilder::new()
-		.with_inner_size(winit::dpi::PhysicalSize::new(1200, 1200))
-		.with_resizable(false);
+		.with_inner_size(winit::dpi::PhysicalSize::new(1200, 1200));
+		// .with_resizable(false);
 	let window = window_builder.build(&event_loop).unwrap();
 	#[cfg(not(target_arch = "wasm32"))]
 	{
