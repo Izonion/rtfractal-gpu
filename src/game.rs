@@ -48,18 +48,18 @@ impl engine::Application for MyApp {
 				let mesh_object = engine::SquareTransform::new_rc();
 				let new_object = Square {
 					position: (rand::random::<f32>() * 1.0 - 0.5, rand::random::<f32>() * 1.0 - 0.5),
-					p_vel: (rand::random::<f32>() * 0.005 - 0.0025, rand::random::<f32>() * 0.005 - 0.0025),
+					p_vel: (rand::random::<f32>() * 0.0025 - 0.00125, rand::random::<f32>() * 0.0025 - 0.00125),
 					rotation: rand::random::<f32>() * std::f32::consts::PI,
-					r_vel: rand::random::<f32>() * 0.02 - 0.01,
-					scale: rand::random::<f32>() * 0.4 + 0.6,// * if rand::random::<f32>() > 0.5 { -1.0 } else { 1.0 },
+					r_vel: rand::random::<f32>() * 0.01 - 0.005,
+					scale: rand::random::<f32>() * 0.4 + 0.6,// * if rand::random::<f32>() > 1.0 { -1.0 } else { 1.0 },
 					s_vel: rand::random::<f32>() * 0.001 - 0.0005,
-					time_left: 700 + (rand::random::<u32>() >> 28),
+					time_left: 2000 + (rand::random::<u32>() >> 27),
 					mesh_object: Rc::clone(&mesh_object),
 				};
 				self.objects.push_back(new_object);
 				renderer.add_mesh(mesh_object);
 			}
-			self.add_obj_cooldown = 200;
+			self.add_obj_cooldown = 620;
 		}
 		let mut dead_objects: Vec<usize> = Vec::new();
 		for (i, square) in self.objects.iter_mut().enumerate() {

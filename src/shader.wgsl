@@ -24,7 +24,7 @@ var<uniform> uniforms: Uniforms;
 fn vs_main(in_vertex: InVertex, in_instance: InInstance) -> OutVertex {
     var out_vertex: OutVertex;
 
-    out_vertex.tex_coord = (in_vertex.position * vec2<f32>(uniforms.aspect_ratio, 1.0) + vec2<f32>(1.0, 1.0)) / 2.0;
+    out_vertex.tex_coord = (in_vertex.position * vec2<f32>(-uniforms.aspect_ratio, 1.0) + vec2<f32>(1.0, 1.0)) / 2.0;
 
     var scaled = in_vertex.position * in_instance.scale;
     var rotated = vec2<f32>(
